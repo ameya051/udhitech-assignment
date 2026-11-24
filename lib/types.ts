@@ -73,6 +73,8 @@ export interface DiagramResult {
   generatedAt: string; // ISO timestamp
   attempts: AttemptLog[];
   error?: string; // only when status === "error"
+  errorStatus?: number; // HTTP status of the failed call (0 = network/timeout/no key), for friendly messages
+  errorLimitSource?: string; // OpenRouter's 402 reason, e.g. "openrouter_key_limit"
 }
 
 export interface ResultsFile {
