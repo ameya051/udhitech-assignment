@@ -12,8 +12,7 @@ export const PRICE_PER_M_OUTPUT_USD = 10.0;
 // Room for a detailed SVG (usually 2-4k tokens) plus low-effort reasoning.
 export const MAX_OUTPUT_TOKENS = 8192;
 
-// Drawing an SVG doesn't need deep thinking; low effort keeps each call fast and cheap.
-export const REASONING_EFFORT = "low";
+export const REASONING_EFFORT = "medium";
 
 // Brief: "If a check fails, retry once".
 export const MAX_CHECK_RETRIES = 1;
@@ -37,9 +36,12 @@ export const BOUNDS_TOLERANCE = 2;
 // Bounds check lists at most this many offenders, so the retry prompt stays short and focused.
 export const MAX_REPORTED_OFFENDERS = 5;
 
-// Text has no real font metrics on the server, so its box is estimated from the font size.
-// 0.6em per character is a little wider than most sans-serif fonts, so the estimate errs safe.
-export const TEXT_CHAR_WIDTH_EM = 0.6;
+// Text has no font engine on the server, so its width comes from Arial's character widths
+// (lib/checks/textWidth.ts). Characters missing from that table count as this wide, which is a
+// little wider than most sans-serif glyphs, so the estimate errs safe.
+export const UNKNOWN_CHAR_WIDTH_EM = 0.6;
+// Arial Bold is about 7% wider than regular for lowercase text; 10% errs safe.
+export const BOLD_WIDTH_FACTOR = 1.1;
 // Glyphs sit mostly above the baseline: ascent ~0.8em above y, descent ~0.2em below.
 export const TEXT_ASCENT_EM = 0.8;
 export const TEXT_DESCENT_EM = 0.2;
@@ -49,8 +51,20 @@ export const DEFAULT_FONT_SIZE = 16;
 // Brief: "at least 3 text labels".
 export const MIN_TEXT_LABELS = 3;
 
-// generate.ts runs concepts one after another; a short pause keeps us under OpenRouter rate limits.
-export const PAUSE_BETWEEN_CONCEPTS_MS = 4000;
+// viewBox units a line may reach into a label's estimated box before it counts as crossing it,
+// so a line that only grazes the edge of the estimate isn't flagged.
+export const LABEL_LINE_TOLERANCE = 2;
+// Circles and ellipses are traced as this many straight sides (error ~0.3 units at r=160).
+export const OUTLINE_SAMPLES = 48;
+// Each bezier curve in a path is traced as this many straight steps.
+export const CURVE_SAMPLES = 16;
+// Lines are checked against labels at points this many viewBox units apart, finer than the
+// tolerance above, so a line can't slip through a label between two checked points.
+export const LINE_SAMPLE_STEP = 1;
+
+// generate.ts runs concepts one after another with this small gap. It was 4s for the free Gemini
+// tier's per-minute limit; paid OpenRouter calls don't need it, and callLlm retries any 429.
+export const PAUSE_BETWEEN_CONCEPTS_MS = 500;
 
 // Review notes save once typing pauses this long, instead of writing localStorage on every keystroke.
 export const NOTE_SAVE_DELAY_MS = 300;

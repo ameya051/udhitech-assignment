@@ -1,6 +1,8 @@
 // Geometry helpers for the bounds check: 2D transforms, path points and bounding boxes.
 // Everything here is pure maths on numbers and strings, with no DOM access.
 
+import { CURVE_SAMPLES } from "../config";
+
 export interface Point {
   x: number;
   y: number;
@@ -52,6 +54,22 @@ export function applyToPoint(matrix: Matrix, point: Point): Point {
 export function applyLinear(matrix: Matrix, offset: Point): Point {
   const [a, b, c, d] = matrix;
   return { x: a * offset.x + c * offset.y, y: b * offset.x + d * offset.y };
+}
+
+// The matrix that undoes `matrix`, or null if it squashes everything onto a line (determinant 0).
+// Used to view the drawing from a rotated label's own frame.
+export function invert(matrix: Matrix): Matrix | null {
+  const [a, b, c, d, e, f] = matrix;
+  const determinant = a * d - b * c;
+  if (determinant === 0) return null;
+  return [
+    d / determinant,
+    -b / determinant,
+    -c / determinant,
+    a / determinant,
+    (c * f - d * e) / determinant,
+    (b * e - a * f) / determinant,
+  ];
 }
 
 // The largest factor by which the matrix can stretch a length, used to scale stroke widths.
@@ -148,6 +166,39 @@ const PATH_COMMAND_PATTERN = /([MLHVCSQTAZ])([^MLHVCSQTAZ]*)/gi;
 // Arcs only contribute their endpoint, so an arc's bulge is approximated (README limitation).
 export function pathPoints(pathData: string): Point[] {
   const points: Point[] = [];
+  forEachPathSegment(pathData, (_command, _origin, segment) => points.push(...segment.all));
+  return points;
+}
+
+// The path as the lines a browser would draw: one polyline per subpath, curves sampled into
+// CURVE_SAMPLES straight steps. Arcs become a straight chord (same limitation as pathPoints).
+export function pathPolylines(pathData: string): Point[][] {
+  const polylines: Point[][] = [];
+  forEachPathSegment(pathData, (command, origin, segment) => {
+    if (command === "M" || polylines.length === 0) {
+      polylines.push([segment.end]);
+      return;
+    }
+    const polyline = polylines[polylines.length - 1];
+    if ((command === "C" || command === "S") && segment.all.length === 3) {
+      const [first, second, end] = segment.all;
+      polyline.push(...sampleCurve((t) => cubicPoint(origin, first, second, end, t)));
+    } else if ((command === "Q" || command === "T") && segment.all.length === 2) {
+      const [control, end] = segment.all;
+      polyline.push(...sampleCurve((t) => quadraticPoint(origin, control, end, t)));
+    } else {
+      polyline.push(segment.end); // L, H, V, Z and arcs
+    }
+  });
+  return polylines;
+}
+
+// Calls `visit` once per segment with its absolute points. Z is reported too, ending at the
+// start of its subpath, so callers can draw the closing line.
+function forEachPathSegment(
+  pathData: string,
+  visit: (command: string, origin: Point, segment: SegmentPoints) => void,
+) {
   let current: Point = { x: 0, y: 0 };
   let subpathStart: Point = current;
   let lastControl: Point | null = null; // for reflecting S/T control points
@@ -160,6 +211,7 @@ export function pathPoints(pathData: string): Point[] {
     const argumentCount = PATH_ARGUMENT_COUNTS[command];
 
     if (command === "Z") {
+      visit(command, current, { all: [], end: subpathStart, control: null });
       current = subpathStart;
       lastControl = null;
       previousCommand = command;
@@ -176,14 +228,33 @@ export function pathPoints(pathData: string): Point[] {
 
       const reflected = reflect(origin, lastControl, previousCommand, segmentCommand);
       const segmentPoints = segmentToPoints(segmentCommand, segment, origin, at, reflected);
-      points.push(...segmentPoints.all);
+      visit(segmentCommand, origin, segmentPoints);
       current = segmentPoints.end;
       lastControl = segmentPoints.control;
       if (segmentCommand === "M") subpathStart = current;
       previousCommand = segmentCommand;
     }
   }
+}
+
+// Points at t = 1/n, 2/n, ..., 1 along a curve (t = 0 is the point already in the polyline).
+function sampleCurve(pointAt: (t: number) => Point): Point[] {
+  const points: Point[] = [];
+  for (let step = 1; step <= CURVE_SAMPLES; step++) points.push(pointAt(step / CURVE_SAMPLES));
   return points;
+}
+
+// Standard Bezier formulas: a weighted mix of the start, control and end points.
+function cubicPoint(start: Point, first: Point, second: Point, end: Point, t: number): Point {
+  const u = 1 - t;
+  const mix = (a: number, b: number, c: number, d: number) => u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
+  return { x: mix(start.x, first.x, second.x, end.x), y: mix(start.y, first.y, second.y, end.y) };
+}
+
+function quadraticPoint(start: Point, control: Point, end: Point, t: number): Point {
+  const u = 1 - t;
+  const mix = (a: number, b: number, c: number) => u * u * a + 2 * u * t * b + t * t * c;
+  return { x: mix(start.x, control.x, end.x), y: mix(start.y, control.y, end.y) };
 }
 
 interface SegmentPoints {

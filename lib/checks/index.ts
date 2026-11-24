@@ -5,10 +5,11 @@ import type { CheckResult, Concept, SvgCheck } from "../types";
 import { animationCheck } from "./animation";
 import { boundsCheck } from "./bounds";
 import { labelsCheck } from "./labels";
+import { labelsClearCheck } from "./labelsClear";
 import { PARSE_CHECK_NAME, parseSvg } from "./parse";
 
 // Run in this order after `parse`; the table shows one column per check in the same order.
-export const CHECKS: SvgCheck[] = [boundsCheck, labelsCheck, animationCheck];
+export const CHECKS: SvgCheck[] = [boundsCheck, labelsCheck, animationCheck, labelsClearCheck];
 
 // `svgText` is null when the model's reply had no <svg> block at all (see extractSvg).
 export function runChecks(svgText: string | null, concept: Concept): CheckResult[] {

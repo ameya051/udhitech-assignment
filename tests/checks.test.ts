@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runChecks } from "../lib/checks";
-import { applyToPoint, parseTransform, pathPoints } from "../lib/checks/geometry";
+import { applyToPoint, invert, parseTransform, pathPoints, pathPolylines } from "../lib/checks/geometry";
 import { CONCEPTS } from "../lib/concepts";
 import { extractSvg } from "../lib/extractSvg";
 import type { CheckId, CheckResult } from "../lib/types";
@@ -49,7 +49,7 @@ describe("runChecks", () => {
   it("passes every check for a good SVG", () => {
     const results = runChecks(fixture("good.svg"), concept);
     for (const result of results) expect(result, result.detail).toMatchObject({ passed: true });
-    expect(results.map((result) => result.id)).toEqual(["parse", "bounds", "labels", "animation"]);
+    expect(results.map((result) => result.id)).toEqual(["parse", "bounds", "labels", "animation", "labelsClear"]);
   });
 
   it("fails parse on malformed XML and skips the rest", () => {
@@ -127,8 +127,22 @@ describe("bounds check", () => {
 
   it("inherits font size and anchor from a parent group", () => {
     const svg = svgWith('<g font-size="40" style="text-anchor: middle"><text x="200" y="150">Wide label here</text></g>');
-    // 15 chars x 40 x 0.6 = 360 wide, centred on 200 → 20..380: inside.
+    // Arial widths: 6.95em x 40 = 278 wide, centred on 200 → 61..339: inside.
     expect(resultOf(runChecks(svg, concept), "bounds").passed).toBe(true);
+  });
+
+  // From the series-circuit run: 0.6em per character put this 4 units past the left edge,
+  // but in Arial it is 171 units wide and starts at x≈19.
+  it("measures text with Arial widths, so a long end-anchored label near the edge passes", () => {
+    const svg = svgWith('<text x="190" y="150" text-anchor="end" font-size="18">between components</text>');
+    expect(resultOf(runChecks(svg, concept), "bounds").passed).toBe(true);
+  });
+
+  it("widens bold text", () => {
+    // 171 units regular, 188 bold: only the bold one crosses the left edge from x=185.
+    const label = (weight: string) => svgWith(`<text x="185" y="150" text-anchor="end" font-size="18" font-weight="${weight}">between components</text>`);
+    expect(resultOf(runChecks(label("normal"), concept), "bounds").passed).toBe(true);
+    expect(resultOf(runChecks(label("bold"), concept), "bounds").passed).toBe(false);
   });
 
   it("counts stroke width at the edge", () => {
@@ -211,6 +225,74 @@ describe("animation check", () => {
   });
 });
 
+describe("labels clear check", () => {
+  const clearOf = (body: string) => resultOf(runChecks(svgWith(body), concept), "labelsClear");
+  // At font-size 16 and 0.5em per character, "Centre" at (100, 100) covers x 100-148, y 87-103.
+  const centre = '<text x="100" y="100">Centre</text>';
+
+  it("fails when a line runs through a label, naming both", () => {
+    const result = clearOf(`${centre}<line x1="90" y1="95" x2="160" y2="95" stroke="#000" stroke-width="2" />`);
+    expect(result.passed).toBe(false);
+    expect(result.detail).toContain('"Centre" is crossed by <line');
+  });
+
+  it("says where the line hits the label and how big the label is estimated to be", () => {
+    // The hit box is the label shrunk by the 2-unit tolerance (less 1 for the half stroke), so
+    // walking the line from x=90 the first point inside is x=102.
+    const result = clearOf(`${centre}<line x1="90" y1="95" x2="160" y2="95" stroke="#000" stroke-width="2" />`);
+    expect(result.detail).toContain("near (102, 95); estimated label box x 100–148, y 87–103");
+  });
+
+  it("passes a label just above a line", () => {
+    expect(clearOf(`${centre}<line x1="90" y1="110" x2="160" y2="110" stroke="#000" stroke-width="2" />`).passed).toBe(true);
+  });
+
+  it("passes a label inside a circle but fails one across its outline", () => {
+    const circle = '<circle cx="200" cy="150" r="80" fill="#eef" stroke="#00f" stroke-width="4" />';
+    expect(clearOf(`${circle}<text x="200" y="155" text-anchor="middle">Centre</text>`).passed).toBe(true);
+    expect(clearOf(`${circle}<text x="270" y="155">Circumference</text>`).passed).toBe(false);
+  });
+
+  it("ignores filled shapes without a stroke", () => {
+    expect(clearOf(`<rect x="50" y="50" width="200" height="100" fill="#cde" />${centre}`).passed).toBe(true);
+  });
+
+  it("checks rotated labels in their own frame", () => {
+    // "Radius" written outward from the centre at 45°, through the circle's edge at r=40.
+    const crossing = '<circle cx="200" cy="150" r="40" fill="none" stroke="#000" stroke-width="2" />' +
+      '<text x="200" y="150" transform="rotate(45 200 150)">Radius</text>';
+    const crossingResult = clearOf(crossing);
+    expect(crossingResult.passed).toBe(false);
+    expect(crossingResult.detail).toContain("(in the label's own x/y units, before its transform)");
+
+    // Same angle, but sitting just above a 45° line instead of on it.
+    const parallel = '<line x1="200" y1="150" x2="300" y2="250" stroke="#000" stroke-width="2" />' +
+      '<text x="200" y="140" transform="rotate(45 200 150)">Radius</text>';
+    expect(clearOf(parallel).passed).toBe(true);
+  });
+
+  it("follows curves, not just their end points", () => {
+    // The ends are below the label; the middle of the curve passes through it at y=90.
+    expect(clearOf(`${centre}<path d="M 80 140 Q 124 40 170 140" fill="none" stroke="#000" />`).passed).toBe(false);
+  });
+
+  it("skips animated labels and moving lines", () => {
+    const line = '<line x1="90" y1="95" x2="160" y2="95" stroke="#000" stroke-width="2" />';
+    const fadingLabel = '<text x="100" y="100">Centre<animate attributeName="opacity" values="1;0" dur="2s" repeatCount="indefinite" /></text>';
+    expect(clearOf(`${fadingLabel}${line}`)).toMatchObject({ passed: true, detail: "0 labels, no lines run through them (1 animated labels not checked)" });
+
+    const movingLine = '<line x1="90" y1="95" x2="160" y2="95" stroke="#000"><animateMotion path="M0,0 L0,40" dur="2s" repeatCount="indefinite" /></line>';
+    expect(clearOf(`${centre}${movingLine}`).passed).toBe(true);
+  });
+
+  it("catches the real circle-parts diagram from the first run", () => {
+    const result = resultOf(runChecks(fixture("circle-parts-crossing.svg"), concept), "labelsClear");
+    expect(result.passed).toBe(false);
+    expect(result.detail).toContain('"Centre" is crossed by <line');
+    expect(result.detail).toContain('"Radius" (after its transforms) is crossed by <circle');
+  });
+});
+
 describe("geometry", () => {
   it("applies rotate around a centre", () => {
     const point = applyToPoint(parseTransform("rotate(90 100 100)"), { x: 200, y: 100 });
@@ -232,6 +314,30 @@ describe("geometry", () => {
       { x: 35, y: 0 },
       { x: 40, y: 30 },
     ]);
+  });
+
+  it("inverts a transform so a point can be mapped back", () => {
+    const matrix = parseTransform("rotate(45 500 340)");
+    const inverse = invert(matrix);
+    if (!inverse) throw new Error("rotation should be invertible");
+    const back = applyToPoint(inverse, applyToPoint(matrix, { x: 520, y: 330 }));
+    expect(back.x).toBeCloseTo(520);
+    expect(back.y).toBeCloseTo(330);
+    expect(invert([0, 0, 0, 0, 5, 5])).toBeNull();
+  });
+
+  it("splits path polylines per subpath and closes on Z", () => {
+    expect(pathPolylines("M0 0 L10 0 L10 10 Z M20 20 h10")).toEqual([
+      [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 0 }],
+      [{ x: 20, y: 20 }, { x: 30, y: 20 }],
+    ]);
+  });
+
+  it("samples curves into polyline points that follow the curve", () => {
+    const [polyline] = pathPolylines("M0 0 Q 5 10 10 0");
+    expect(polyline).toHaveLength(17); // start + CURVE_SAMPLES steps
+    expect(polyline[8]).toEqual({ x: 5, y: 5 }); // halfway along a quadratic: 2·0.5·0.5·10 = 5
+    expect(polyline[16]).toEqual({ x: 10, y: 0 });
   });
 
   it("reads arc flags written without separators", () => {

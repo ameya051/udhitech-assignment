@@ -17,7 +17,7 @@ export interface Concept {
   keyTerms: string[][]; // each inner array = one required term + its accepted spellings
 }
 
-export type CheckId = "parse" | "bounds" | "labels" | "animation";
+export type CheckId = "parse" | "bounds" | "labels" | "animation" | "labelsClear";
 
 export interface CheckResult {
   id: CheckId;

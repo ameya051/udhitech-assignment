@@ -17,7 +17,15 @@ Rules:
 - The SVG must be valid XML: escape "&" as &amp; and "<" in text as &lt;.
 - Never use <script>, on* event attributes, <foreignObject>, <image>, external links, or external fonts.
 - Use font-family="Arial, Helvetica, sans-serif" and font-size of at least 16.
-- The diagram must be scientifically accurate, clear, and high contrast on a white background.`;
+- The diagram must be scientifically accurate, clear, and high contrast on a white background.
+
+Label layout (a label fails if any line, arrow or shape outline passes through its text):
+- Work out each label's box before placing it. Width = 0.6 × font-size × number of characters (about 10 units per character at font-size 16). The text covers y − font-size to y + 0.3 × font-size.
+- Keep at least 10 units of clear space between every label box and every line, arrow, shape edge and other label.
+- Draw the diagram in the middle of the canvas and put labels in the open space around it. Join each label to what it names with a short leader line that stops 8 units before the text.
+- Use text-anchor="end" for a label to the left of its leader line and text-anchor="start" for one to the right, so the text grows away from the drawing.
+- Keep all labels horizontal. Never rotate text.
+- Put a label inside a shape only if its whole box fits inside with 10 units to spare. Otherwise put it outside with a leader line.`;
 
 export function firstUserMessage(concept: Concept): string {
   return `Concept: ${concept.name} (${concept.subject}).\nDescription: ${concept.text}`;
