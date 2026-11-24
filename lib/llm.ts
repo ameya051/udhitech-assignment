@@ -21,6 +21,10 @@ const MS_PER_SECOND = 1000;
 // It clears on its own, so it is worth retrying (unlike a 402 for an exhausted key limit).
 const TEMPORARY_BUDGET_LIMIT = "openrouter_in_flight_budget";
 
+// Exported so lib/friendlyError.ts can recognise these errors without copying the text.
+export const MISSING_KEY_MESSAGE = "OPENROUTER_API_KEY is not set";
+export const TIMED_OUT_MESSAGE = `Request timed out after ${REQUEST_TIMEOUT_MS / MS_PER_SECOND}s`;
+
 // Status 0 means we never got an HTTP response (network error or timeout).
 export class LlmError extends Error {
   status: number;
@@ -60,7 +64,7 @@ export async function callLlm(
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new LlmError(0, "OPENROUTER_API_KEY is not set");
+    throw new LlmError(0, MISSING_KEY_MESSAGE);
   }
 
   const body = JSON.stringify({
@@ -106,7 +110,7 @@ async function sendOnce(fetchFn: typeof fetch, apiKey: string, body: string): Pr
     });
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new LlmError(0, `Request timed out after ${REQUEST_TIMEOUT_MS / MS_PER_SECOND}s`);
+      throw new LlmError(0, TIMED_OUT_MESSAGE);
     }
     throw new LlmError(0, `Network error: ${error instanceof Error ? error.message : String(error)}`);
   } finally {

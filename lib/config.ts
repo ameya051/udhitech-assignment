@@ -51,3 +51,15 @@ export const MIN_TEXT_LABELS = 3;
 
 // generate.ts runs concepts one after another; a short pause keeps us under OpenRouter rate limits.
 export const PAUSE_BETWEEN_CONCEPTS_MS = 4000;
+
+// Review notes save once typing pauses this long, instead of writing localStorage on every keystroke.
+export const NOTE_SAVE_DELAY_MS = 300;
+
+// Live Generate guard (brief-sized: ~5 tries per reviewer per 10 minutes). Each run costs
+// ~$0.03-0.06, so this keeps one visitor from draining the $2-capped deploy key.
+export const LIVE_GENERATE_MAX_REQUESTS = 5;
+export const LIVE_GENERATE_WINDOW_MS = 10 * 60 * 1000;
+
+// The browser gives up a little after the route's 60s maxDuration, so on Vercel the server's own
+// answer (or its 504) arrives first. Locally there is no limit, so this stops an endless wait.
+export const LIVE_GENERATE_CLIENT_TIMEOUT_MS = 70000;

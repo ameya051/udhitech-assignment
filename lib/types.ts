@@ -77,6 +77,21 @@ export interface DiagramResult {
   errorLimitSource?: string; // OpenRouter's 402 reason, e.g. "openrouter_key_limit"
 }
 
+// A reviewer's decision on one diagram. null = not reviewed yet (or cleared).
+export type ReviewDecision = "approved" | "rejected" | null;
+
+// What ReviewControls saves in localStorage under `review:v1:${conceptId}`.
+export interface StoredReview {
+  decision: ReviewDecision;
+  note: string;
+  updatedAt: string; // ISO timestamp of the last save
+}
+
+// JSON body of POST /api/generate. On failure `result` may still carry a partial diagram.
+export type GenerateResponse =
+  | { ok: true; result: DiagramResult }
+  | { ok: false; error: string; result?: DiagramResult };
+
 export interface ResultsFile {
   generatedAt: string;
   results: DiagramResult[];
