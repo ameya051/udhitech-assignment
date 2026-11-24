@@ -2,8 +2,7 @@
 
 import type { Document } from "@xmldom/xmldom";
 import type { SvgCheck } from "../types";
-
-const SMIL_ELEMENTS = ["animate", "animateTransform", "animateMotion", "set"];
+import { SMIL_ELEMENTS, styleSheetText } from "./dom";
 
 const KEYFRAMES_PATTERN = /@(?:-webkit-)?keyframes\s+([\w-]+)/g;
 const ANIMATION_DECLARATION_PATTERN = /animation(?:-name)?\s*:\s*([^;}]+)/g;
@@ -31,9 +30,7 @@ export const animationCheck: SvgCheck = {
 // A @keyframes block only animates something if an animation rule names it,
 // either in a <style> block or in an element's inline style attribute.
 function findUsedKeyframes(doc: Document): string[] {
-  const styleText = Array.from(doc.getElementsByTagName("style"))
-    .map((style) => style.textContent ?? "")
-    .join("\n");
+  const styleText = styleSheetText(doc);
   const keyframeNames = Array.from(styleText.matchAll(KEYFRAMES_PATTERN), (match) => match[1]);
   if (keyframeNames.length === 0) return [];
 

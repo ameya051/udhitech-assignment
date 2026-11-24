@@ -4,13 +4,12 @@
 // Uses the same text box estimate as the bounds check (drawn.ts + textWidth.ts).
 
 import type { Document, Element } from "@xmldom/xmldom";
-import { LABEL_LINE_TOLERANCE, LINE_SAMPLE_STEP, MAX_REPORTED_OFFENDERS } from "../config";
+import { LABEL_LINE_TOLERANCE, LINE_SAMPLE_STEP } from "../config";
 import type { SvgCheck } from "../types";
-import { childElements, describeElement, drawnElements, type DrawnElement } from "./drawn";
-import { applyToPoint, invert, maxScale, type Box, type Matrix, type Point } from "./geometry";
+import { SMIL_ELEMENTS, childElements, hrefId, parentElement, styleSheetText } from "./dom";
+import { describeElement, drawnElements, listWithOverflow, type DrawnElement } from "./drawn";
+import { applyToPoint, expandBox, invert, maxScale, type Box, type Matrix, type Point } from "./geometry";
 import { readViewBox } from "./parse";
-
-const SMIL_TAGS = ["animate", "set", "animateTransform", "animateMotion"];
 
 export const labelsClearCheck: SvgCheck = {
   id: "labelsClear",
@@ -43,12 +42,9 @@ export const labelsClearCheck: SvgCheck = {
       return { passed: true, detail: `${stillLabels.length} labels, no lines run through them${skippedNote}` };
     }
 
-    const reported = crossings.slice(0, MAX_REPORTED_OFFENDERS);
-    const hiddenCount = crossings.length - reported.length;
-    if (hiddenCount > 0) reported.push(`and ${hiddenCount} more`);
     return {
       passed: false,
-      detail: `${crossings.length} label(s) have a line through them: ${reported.join("; ")}. Move each label beside the line, not on it.`,
+      detail: `${crossings.length} label(s) have a line through them: ${listWithOverflow(crossings)}. Move each label beside the line, not on it.`,
     };
   },
 };
@@ -74,7 +70,7 @@ function crossingPoint(line: DrawnElement, label: DrawnElement): Point | null {
 
   // The line's stroke reaches halfStroke beyond its centre line; grazing the edge doesn't count.
   const reach = line.halfStroke / maxScale(label.matrix) - LABEL_LINE_TOLERANCE;
-  const hitBox = grow(label.localBox, reach);
+  const hitBox = expandBox(label.localBox, reach);
 
   for (const polyline of line.outline) {
     for (let index = 1; index < polyline.length; index++) {
@@ -97,10 +93,6 @@ function firstPointInBox(start: Point, end: Point, toLabelFrame: Matrix, box: Bo
   return null;
 }
 
-function grow(box: Box, amount: number): Box {
-  return { minX: box.minX - amount, minY: box.minY - amount, maxX: box.maxX + amount, maxY: box.maxY + amount };
-}
-
 function isMoving({ motion }: DrawnElement): boolean {
   const { minX, minY, maxX, maxY } = motion.offsets;
   return minX !== 0 || minY !== 0 || maxX !== 0 || maxY !== 0;
@@ -113,7 +105,7 @@ interface AnimationTargets {
 
 function animationTargets(doc: Document): AnimationTargets {
   const classes = new Set<string>();
-  const styleText = Array.from(doc.getElementsByTagName("style")).map((style) => style.textContent ?? "").join("\n");
+  const styleText = styleSheetText(doc);
   // Innermost `selector { body }` pairs. Keyframe steps match too, but have no class names.
   for (const [, selector, body] of styleText.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     if (!/animation/i.test(body)) continue;
@@ -121,10 +113,10 @@ function animationTargets(doc: Document): AnimationTargets {
   }
 
   const ids = new Set<string>();
-  for (const tag of SMIL_TAGS) {
+  for (const tag of SMIL_ELEMENTS) {
     for (const animation of Array.from(doc.getElementsByTagName(tag))) {
-      const href = animation.getAttribute("href") ?? animation.getAttribute("xlink:href") ?? "";
-      if (href.startsWith("#") && href.length > 1) ids.add(href.slice(1));
+      const id = hrefId(animation);
+      if (id) ids.add(id);
     }
   }
   return { classes, ids };
@@ -134,18 +126,11 @@ function animationTargets(doc: Document): AnimationTargets {
 // an inline CSS animation, or a class that a <style> rule animates.
 function isAnimated(element: Element, targets: AnimationTargets): boolean {
   for (let current: Element | null = element; current; current = parentElement(current)) {
-    if (childElements(current).some((child) => SMIL_TAGS.includes(child.localName ?? ""))) return true;
+    if (childElements(current).some((child) => SMIL_ELEMENTS.includes(child.localName ?? ""))) return true;
     if (targets.ids.has(current.getAttribute("id") ?? "")) return true;
     if (/animation/i.test(current.getAttribute("style") ?? "")) return true;
     const classNames = (current.getAttribute("class") ?? "").split(/\s+/);
     if (classNames.some((name) => targets.classes.has(name))) return true;
   }
   return false;
-}
-
-const ELEMENT_NODE = 1;
-
-function parentElement(element: Element): Element | null {
-  const parent = element.parentNode;
-  return parent && parent.nodeType === ELEMENT_NODE ? (parent as Element) : null;
 }

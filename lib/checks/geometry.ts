@@ -138,6 +138,11 @@ export function addBoxes(box: Box, offsets: Box): Box {
   };
 }
 
+// `box` grown by `amount` on every side (shrunk if `amount` is negative).
+export function expandBox(box: Box, amount: number): Box {
+  return { minX: box.minX - amount, minY: box.minY - amount, maxX: box.maxX + amount, maxY: box.maxY + amount };
+}
+
 // "10,20 30,40" style number lists (polygon points, animateMotion values) → points.
 export function pairsToPoints(numbers: number[]): Point[] {
   const points: Point[] = [];

@@ -3,6 +3,7 @@
 // so judging them by their own position alone flags diagrams that look fine in a browser.
 
 import type { Element } from "@xmldom/xmldom";
+import { hrefId } from "./dom";
 import { addBoxes, applyLinear, boxOfPoints, pairsToPoints, parseNumbers, pathPoints, type Box, type Matrix, type Point } from "./geometry";
 
 export interface Motion {
@@ -54,8 +55,8 @@ function motionOffsets(motion: Element): Point[] {
 
 // <mpath href="#orbit"/> borrows the `d` of another element, usually a <path> inside <defs>.
 function referencedPathData(mpath: Element): string {
-  const href = mpath.getAttribute("href") ?? mpath.getAttribute("xlink:href") ?? "";
-  const target = href.startsWith("#") ? mpath.ownerDocument?.getElementById(href.slice(1)) : null;
+  const id = hrefId(mpath);
+  const target = id ? mpath.ownerDocument?.getElementById(id) : null;
   return target?.getAttribute("d") ?? "";
 }
 

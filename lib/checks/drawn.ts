@@ -2,12 +2,14 @@
 // estimates the box of every drawn shape, its stroked outline, and how far <animateMotion> moves it.
 
 import type { Element } from "@xmldom/xmldom";
-import { DEFAULT_FONT_SIZE, OUTLINE_SAMPLES, TEXT_ASCENT_EM, TEXT_DESCENT_EM } from "../config";
+import { DEFAULT_FONT_SIZE, MAX_REPORTED_OFFENDERS, OUTLINE_SAMPLES, TEXT_ASCENT_EM, TEXT_DESCENT_EM } from "../config";
+import { childElements, normalisedText } from "./dom";
 import {
   IDENTITY,
   applyToPoint,
   boxOfPoints,
   cornersOfBox,
+  expandBox,
   isIdentity,
   maxScale,
   multiply,
@@ -97,7 +99,7 @@ function collectBoxes(parent: Element, parentState: WalkState, viewBox: ViewBox,
     drawn.push({
       element,
       localBox,
-      ownBox: expand(box, halfStroke),
+      ownBox: expandBox(box, halfStroke),
       outline: outline.map((polyline) => polyline.map((point) => applyToPoint(matrix, point))),
       halfStroke,
       matrix,
@@ -270,10 +272,6 @@ function firstNumber(value: string | null): number {
   return parseNumbers(value ?? "")[0] ?? 0;
 }
 
-function expand(box: Box, amount: number): Box {
-  return { minX: box.minX - amount, minY: box.minY - amount, maxX: box.maxX + amount, maxY: box.maxY + amount };
-}
-
 // Identifying attributes per shape, so the model can find the exact element on retry.
 const KEY_ATTRIBUTES: Record<string, string[]> = {
   rect: ["x", "y", "width", "height"],
@@ -304,17 +302,10 @@ function preview(value: string): string {
   return value.length > MAX_ATTRIBUTE_PREVIEW_CHARS ? `${value.slice(0, MAX_ATTRIBUTE_PREVIEW_CHARS)}…` : value;
 }
 
-export function normalisedText(element: Element): string {
-  return (element.textContent ?? "").replace(/\s+/g, " ").trim();
-}
-
-const ELEMENT_NODE = 1; // DOM nodeType for elements (text and comments are skipped)
-
-export function childElements(parent: Element): Element[] {
-  const elements: Element[] = [];
-  for (let index = 0; index < parent.childNodes.length; index++) {
-    const node = parent.childNodes[index];
-    if (node.nodeType === ELEMENT_NODE) elements.push(node as Element);
-  }
-  return elements;
+// The first MAX_REPORTED_OFFENDERS lines plus "and N more", so the retry prompt stays short.
+export function listWithOverflow(lines: string[]): string {
+  const reported = lines.slice(0, MAX_REPORTED_OFFENDERS);
+  const hiddenCount = lines.length - reported.length;
+  if (hiddenCount > 0) reported.push(`and ${hiddenCount} more`);
+  return reported.join("; ");
 }

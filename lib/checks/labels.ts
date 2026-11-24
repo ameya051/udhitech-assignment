@@ -3,6 +3,7 @@
 import type { Document } from "@xmldom/xmldom";
 import { MIN_TEXT_LABELS } from "../config";
 import type { SvgCheck } from "../types";
+import { normalisedText } from "./dom";
 
 export const labelsCheck: SvgCheck = {
   id: "labels",
@@ -26,6 +27,6 @@ export const labelsCheck: SvgCheck = {
 // Trimmed text of every <tagName>, dropping empty ones. textContent includes nested <tspan> text.
 function nonEmptyTexts(doc: Document, tagName: string): string[] {
   return Array.from(doc.getElementsByTagName(tagName))
-    .map((element) => (element.textContent ?? "").replace(/\s+/g, " ").trim())
+    .map(normalisedText)
     .filter((text) => text.length > 0);
 }

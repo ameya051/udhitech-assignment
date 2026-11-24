@@ -2,9 +2,9 @@
 // drawn.ts estimates each shape's box (with transforms); here we add where <animateMotion>
 // can move it and compare the result with the viewBox.
 
-import { BOUNDS_TOLERANCE, MAX_REPORTED_OFFENDERS } from "../config";
+import { BOUNDS_TOLERANCE } from "../config";
 import type { SvgCheck } from "../types";
-import { describeElement, drawnElements } from "./drawn";
+import { describeElement, drawnElements, listWithOverflow } from "./drawn";
 import { addBoxes, type Box } from "./geometry";
 import { readViewBox, type ViewBox } from "./parse";
 
@@ -25,12 +25,8 @@ export const boundsCheck: SvgCheck = {
       return { passed: true, detail: `All ${drawn.length} drawn elements fit inside the viewBox` };
     }
 
-    const lines = offenders
-      .slice(0, MAX_REPORTED_OFFENDERS)
-      .map(({ item, overflow }) => `${describeElement(item, item.motion.note)} extends ${overflow}`);
-    const hiddenCount = offenders.length - lines.length;
-    if (hiddenCount > 0) lines.push(`and ${hiddenCount} more`);
-    return { passed: false, detail: `${offenders.length} element(s) outside the viewBox: ${lines.join("; ")}` };
+    const lines = offenders.map(({ item, overflow }) => `${describeElement(item, item.motion.note)} extends ${overflow}`);
+    return { passed: false, detail: `${offenders.length} element(s) outside the viewBox: ${listWithOverflow(lines)}` };
   },
 };
 
