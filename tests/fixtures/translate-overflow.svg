@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <title>Group moved off screen</title>
+  <g transform="translate(900,0)">
+    <rect x="0" y="10" width="50" height="50" />
+  </g>
+  <text x="10" y="20">One</text>
+  <text x="10" y="40">Two</text>
+  <text x="10" y="60">Three</text>
+  <animate attributeName="opacity" values="0;1" dur="1s" />
+</svg>
