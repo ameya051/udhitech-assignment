@@ -47,6 +47,13 @@ export function applyToPoint(matrix: Matrix, point: Point): Point {
   return { x: a * point.x + c * point.y + e, y: b * point.x + d * point.y + f };
 }
 
+// Applies only the scale/rotate/skew part of the matrix. Used for offsets (how far something
+// moves), which the translation part must not shift.
+export function applyLinear(matrix: Matrix, offset: Point): Point {
+  const [a, b, c, d] = matrix;
+  return { x: a * offset.x + c * offset.y, y: b * offset.x + d * offset.y };
+}
+
 // The largest factor by which the matrix can stretch a length, used to scale stroke widths.
 export function maxScale(matrix: Matrix): number {
   const [a, b, c, d] = matrix;
@@ -101,6 +108,25 @@ export function boxOfPoints(points: Point[]): Box | null {
     maxX: Math.max(...points.map((point) => point.x)),
     maxY: Math.max(...points.map((point) => point.y)),
   };
+}
+
+// Every point of `box` moved by every offset in `offsets`: the area a moving shape can cover.
+export function addBoxes(box: Box, offsets: Box): Box {
+  return {
+    minX: box.minX + offsets.minX,
+    minY: box.minY + offsets.minY,
+    maxX: box.maxX + offsets.maxX,
+    maxY: box.maxY + offsets.maxY,
+  };
+}
+
+// "10,20 30,40" style number lists (polygon points, animateMotion values) → points.
+export function pairsToPoints(numbers: number[]): Point[] {
+  const points: Point[] = [];
+  for (let index = 0; index + 1 < numbers.length; index += 2) {
+    points.push({ x: numbers[index], y: numbers[index + 1] });
+  }
+  return points;
 }
 
 export function cornersOfBox(box: Box): Point[] {

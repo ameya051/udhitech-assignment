@@ -1,5 +1,6 @@
 // Check 2: nothing drawn outside the viewBox.
-// Walks the SVG tree with a running transform, estimates each shape's box, and compares it to the viewBox.
+// Walks the SVG tree with a running transform, estimates each shape's box (including where
+// <animateMotion> moves it), and compares it to the viewBox.
 
 import type { Element } from "@xmldom/xmldom";
 import {
@@ -13,12 +14,14 @@ import {
 import type { SvgCheck } from "../types";
 import {
   IDENTITY,
+  addBoxes,
   applyToPoint,
   boxOfPoints,
   cornersOfBox,
   isIdentity,
   maxScale,
   multiply,
+  pairsToPoints,
   parseNumbers,
   parseTransform,
   pathPoints,
@@ -26,6 +29,7 @@ import {
   type Matrix,
   type Point,
 } from "./geometry";
+import { NO_MOTION, combineMotion, motionOf, type Motion } from "./motion";
 import { readViewBox, type ViewBox } from "./parse";
 
 // Never drawn directly (definitions, metadata, animation), so their children are ignored.
@@ -46,10 +50,18 @@ interface InheritedStyle {
   textAnchor: string;
 }
 
+// What a child inherits from the elements around it while we walk down the tree.
+interface WalkState {
+  matrix: Matrix; // all transforms from the root down to this element
+  style: InheritedStyle;
+  motion: Motion; // movement from this element's and its ancestors' <animateMotion>
+}
+
 interface DrawnBox {
   element: Element;
   box: Box;
   isTransformed: boolean;
+  motionNote: string;
 }
 
 const ROOT_STYLE: InheritedStyle = { fontSize: DEFAULT_FONT_SIZE, stroke: null, strokeWidth: 1, textAnchor: "start" };
@@ -63,7 +75,8 @@ export const boundsCheck: SvgCheck = {
     if (!root || !viewBox) return { passed: false, detail: "Skipped: no usable viewBox" };
 
     const drawn: DrawnBox[] = [];
-    collectBoxes(root, IDENTITY, inheritStyle(root, ROOT_STYLE), viewBox, drawn);
+    const rootState: WalkState = { matrix: IDENTITY, style: inheritStyle(root, ROOT_STYLE), motion: NO_MOTION };
+    collectBoxes(root, rootState, viewBox, drawn);
 
     const offenders = drawn
       .map((item) => ({ item, overflow: describeOverflow(item.box, viewBox) }))
@@ -82,23 +95,33 @@ export const boundsCheck: SvgCheck = {
   },
 };
 
-function collectBoxes(parent: Element, parentMatrix: Matrix, parentStyle: InheritedStyle, viewBox: ViewBox, drawn: DrawnBox[]) {
+function collectBoxes(parent: Element, parentState: WalkState, viewBox: ViewBox, drawn: DrawnBox[]) {
   for (const element of childElements(parent)) {
     const tag = element.localName ?? "";
     if (NOT_DRAWN.has(tag)) continue;
 
-    const matrix = multiply(parentMatrix, parseTransform(element.getAttribute("transform")));
-    const style = inheritStyle(element, parentStyle);
+    const matrix = multiply(parentState.matrix, parseTransform(element.getAttribute("transform")));
+    const motions = childElements(element).filter((child) => child.localName === "animateMotion");
+    const state: WalkState = {
+      matrix,
+      style: inheritStyle(element, parentState.style),
+      motion: combineMotion(parentState.motion, motionOf(motions, matrix)),
+    };
 
     if (!SHAPES.has(tag)) {
-      collectBoxes(element, matrix, style, viewBox, drawn); // <g>, <a>, nested <svg>, ...
+      collectBoxes(element, state, viewBox, drawn); // <g>, <a>, nested <svg>, ...
       continue;
     }
 
-    const box = boxOfPoints(shapePoints(element, style, viewBox).map((point) => applyToPoint(matrix, point)));
+    const box = boxOfPoints(shapePoints(element, state.style, viewBox).map((point) => applyToPoint(matrix, point)));
     if (!box) continue;
-    const strokeAllowance = halfStrokeWidth(style) * maxScale(matrix);
-    drawn.push({ element, box: expand(box, strokeAllowance), isTransformed: !isIdentity(matrix) });
+    const strokeAllowance = halfStrokeWidth(state.style) * maxScale(matrix);
+    drawn.push({
+      element,
+      box: addBoxes(expand(box, strokeAllowance), state.motion.offsets),
+      isTransformed: !isIdentity(matrix),
+      motionNote: state.motion.note,
+    });
   }
 }
 
@@ -138,14 +161,6 @@ function shapePoints(element: Element, style: InheritedStyle, viewBox: ViewBox):
 
 function ellipseCorners(centerX: number, centerY: number, radiusX: number, radiusY: number): Point[] {
   return cornersOfBox({ minX: centerX - radiusX, minY: centerY - radiusY, maxX: centerX + radiusX, maxY: centerY + radiusY });
-}
-
-function pairsToPoints(numbers: number[]): Point[] {
-  const points: Point[] = [];
-  for (let index = 0; index + 1 < numbers.length; index += 2) {
-    points.push({ x: numbers[index], y: numbers[index + 1] });
-  }
-  return points;
 }
 
 // No font metrics on the server, so the box is an estimate (see the TEXT_* constants).
@@ -251,7 +266,7 @@ const KEY_ATTRIBUTES: Record<string, string[]> = {
 
 const MAX_ATTRIBUTE_PREVIEW_CHARS = 40;
 
-function describeElement({ element, isTransformed }: DrawnBox): string {
+function describeElement({ element, isTransformed, motionNote }: DrawnBox): string {
   const tag = element.localName ?? "element";
   const names = element.getAttribute("id") ? ["id", ...KEY_ATTRIBUTES[tag]] : KEY_ATTRIBUTES[tag];
   const attributes = names
@@ -259,7 +274,7 @@ function describeElement({ element, isTransformed }: DrawnBox): string {
     .map((name) => `${name}="${preview(element.getAttribute(name) ?? "")}"`);
   const label = tag === "text" ? ` "${preview(normalisedText(element))}"` : "";
   const transformNote = isTransformed ? " (after its transforms)" : "";
-  return `<${[tag, ...attributes].join(" ")}>${label}${transformNote}`;
+  return `<${[tag, ...attributes].join(" ")}>${label}${transformNote}${motionNote}`;
 }
 
 function preview(value: string): string {

@@ -33,6 +33,16 @@ describe("extractSvg", () => {
   it("returns null when there is no svg", () => {
     expect(extractSvg("Sorry, I can't draw that.")).toBeNull();
   });
+
+  it("keeps only the last SVG when the model sends a draft and then a correction", () => {
+    const reply = '<svg id="draft"></svg>\n\nWait: that is wrong, fixed below.\n\n<svg id="fixed"></svg>';
+    expect(extractSvg(reply)).toBe('<svg id="fixed"></svg>');
+  });
+
+  it("keeps a nested <svg> element inside its parent", () => {
+    const svg = '<svg id="outer"><svg id="inner"><rect /></svg><text>after</text></svg>';
+    expect(extractSvg(`Here:\n${svg}`)).toBe(svg);
+  });
 });
 
 describe("runChecks", () => {
@@ -129,6 +139,44 @@ describe("bounds check", () => {
   it("ignores shapes inside defs", () => {
     const svg = svgWith('<defs><circle cx="1000" cy="1000" r="5" /></defs>');
     expect(resultOf(runChecks(svg, concept), "bounds").passed).toBe(true);
+  });
+
+  // From the first real run: particles drawn at (0,0) and placed only by their motion path.
+  it("judges a circle at (0,0) by its animateMotion path, not its own position", () => {
+    const svg = svgWith(
+      '<circle cx="0" cy="0" r="10"><animateMotion dur="4s" repeatCount="indefinite" path="M60 200 L300 150" /></circle>',
+    );
+    expect(resultOf(runChecks(svg, concept), "bounds").passed).toBe(true);
+  });
+
+  it("still fails when a delayed begin leaves the circle at (0,0) until it moves", () => {
+    const svg = svgWith(
+      '<circle cx="0" cy="0" r="10"><animateMotion dur="4s" begin="2s" repeatCount="indefinite" path="M60 200 L300 150" /></circle>',
+    );
+    const bounds = resultOf(runChecks(svg, concept), "bounds");
+    expect(bounds.passed).toBe(false);
+    expect(bounds.detail).toContain("before a delayed begin");
+  });
+
+  it("fails when the motion path itself leaves the viewBox", () => {
+    const svg = svgWith(
+      '<circle cx="200" cy="150" r="10"><animateMotion dur="4s" repeatCount="indefinite" path="M0 0 L250 0" /></circle>',
+    );
+    const bounds = resultOf(runChecks(svg, concept), "bounds");
+    expect(bounds.passed).toBe(false);
+    expect(bounds.detail).toContain("(along its <animateMotion> path) extends past the right edge by 60 units");
+  });
+
+  it("follows <mpath> to a path defined elsewhere, inside a moved group", () => {
+    const svg = svgWith(
+      '<defs><path id="orbit" d="M0 0 L500 0" /></defs>' +
+        '<g transform="translate(-100 0)"><circle cx="0" cy="150" r="5">' +
+        '<animateMotion dur="4s" repeatCount="indefinite"><mpath href="#orbit" /></animateMotion></circle></g>',
+    );
+    // Moves from x=-100 to x=400 (500 along the path, minus the group's translate): off the left edge.
+    const bounds = resultOf(runChecks(svg, concept), "bounds");
+    expect(bounds.passed).toBe(false);
+    expect(bounds.detail).toContain("past the left edge");
   });
 });
 

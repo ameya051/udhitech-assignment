@@ -48,3 +48,6 @@ export const DEFAULT_FONT_SIZE = 16;
 
 // Brief: "at least 3 text labels".
 export const MIN_TEXT_LABELS = 3;
+
+// generate.ts runs concepts one after another; a short pause keeps us under OpenRouter rate limits.
+export const PAUSE_BETWEEN_CONCEPTS_MS = 4000;
